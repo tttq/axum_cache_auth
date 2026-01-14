@@ -159,28 +159,26 @@ impl StorageTrait for HybridStorage {
                 self.redis_storage.delete(key).await
             },
             TokenStorage::All => {
-                // 混合存储策略：先删除本地缓存，再删除Redis缓存
-                // 这样可以避免删除Redis后，本地缓存删除失败导致的不一致
-                let local_result = self.local_storage.delete(key).await;
-                match local_result {
+                // 混合存储策略：先删除Redis，再删除本地缓存
+                let redis_result = self.redis_storage.delete(key).await;
+                match redis_result {
                     Ok(_) => {
-                        let redis_result = self.redis_storage.delete(key).await;
-                        match redis_result {
+                        let local_result = self.local_storage.delete(key).await;
+                        match local_result {
                             Ok(_) => {
                                 debug!("混合存储删除成功: {}", key);
                                 Ok(())
                             },
                             Err(e) => {
-                                error!("Redis缓存删除失败: {}, 错误: {:?}", key, e);
-                                // Redis删除失败，尝试恢复本地缓存
-                                // 注意：这里恢复可能会导致短暂不一致，但总比永久不一致好
-                                let _ = self.local_storage.exists(key).await;
+                                error!("本地缓存删除失败: {}, 错误: {:?}", key, e);
                                 Err(e)
                             },
                         }
                     },
                     Err(e) => {
-                        error!("本地缓存删除失败: {}, 错误: {:?}", key, e);
+                        error!("Redis缓存删除失败: {}, 错误: {:?}", key, e);
+                        // Redis删除失败，尝试删除本地缓存
+                        let _ = self.local_storage.delete(key).await;
                         Err(e)
                     },
                 }
@@ -406,30 +404,26 @@ impl StorageTrait for HybridStorage {
                 self.redis_storage.mdel(keys).await
             },
             TokenStorage::All => {
-                // 混合存储策略：先批量删除本地缓存，再批量删除Redis缓存
-                // 这样可以避免删除Redis后，本地缓存删除失败导致的不一致
-                let local_result = self.local_storage.mdel(keys).await;
-                match local_result {
+                // 混合存储策略：先批量删除Redis，再批量删除本地缓存
+                let redis_result = self.redis_storage.mdel(keys).await;
+                match redis_result {
                     Ok(_) => {
-                        let redis_result = self.redis_storage.mdel(keys).await;
-                        match redis_result {
+                        let local_result = self.local_storage.mdel(keys).await;
+                        match local_result {
                             Ok(_) => {
                                 debug!("混合存储批量删除成功");
                                 Ok(())
                             },
                             Err(e) => {
-                                error!("Redis缓存批量删除失败，错误: {:?}", e);
-                                // Redis删除失败，尝试恢复本地缓存
-                                // 注意：这里恢复可能会导致短暂不一致，但总比永久不一致好
-                                for key in keys {
-                                    let _ = self.local_storage.exists(key).await;
-                                }
+                                error!("本地缓存批量删除失败，错误: {:?}", e);
                                 Err(e)
                             },
                         }
                     },
                     Err(e) => {
-                        error!("本地缓存批量删除失败，错误: {:?}", e);
+                        error!("Redis缓存批量删除失败，错误: {:?}", e);
+                        // Redis删除失败，尝试删除本地缓存
+                        let _ = self.local_storage.mdel(keys).await;
                         Err(e)
                     },
                 }
