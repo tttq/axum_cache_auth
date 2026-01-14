@@ -1,9 +1,9 @@
-use crate::store::store_result::{StorageError, StorageResult, StorageTrait};
+use crate::store::store_result::{ StorageResult, StorageTrait};
 use async_trait::async_trait;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use moka::sync::Cache;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 
 /// 本地缓存实现
 /// 
@@ -56,11 +56,11 @@ impl LocalStorage {
 
     /// 生成完整的键名（包含前缀）
     fn full_key(&self, key: &str) -> String {
-        format!("{}{}", self.key_prefix, key)
+        format!("{}:{}", self.key_prefix, key)
     }
 
     /// 解析完整键名，获取原始键（去除前缀）
-    fn parse_key(&self, full_key: &str) -> Option<&str> {
+    fn parse_key<'a>(&self, full_key: &'a str) -> Option<&'a str> {
         if full_key.starts_with(&self.key_prefix) {
             Some(&full_key[self.key_prefix.len()..])
         } else {
@@ -75,7 +75,7 @@ impl StorageTrait for LocalStorage {
         let full_key = self.full_key(key);
         debug!("获取本地缓存: {}", full_key);
         
-        match self.cache.get(&full_key).await {
+        match self.cache.get(&full_key) {
             Some(value) => {
                 debug!("本地缓存命中: {}", full_key);
                 Ok(Some(value))
@@ -93,8 +93,7 @@ impl StorageTrait for LocalStorage {
         debug!("设置本地缓存: {}, TTL: {:?}", full_key, actual_ttl);
         
         self.cache
-            .insert(full_key.clone(), value.to_string())
-            .await;
+            .insert(full_key.clone(), value.to_string());
         
         // 如果指定了不同的TTL，则单独设置
         if ttl.is_some() {
@@ -109,7 +108,7 @@ impl StorageTrait for LocalStorage {
         let full_key = self.full_key(key);
         debug!("删除本地缓存: {}", full_key);
         
-        self.cache.remove(&full_key).await;
+        self.cache.remove(&full_key);
         info!("本地缓存删除成功: {}", full_key);
         Ok(())
     }
@@ -118,7 +117,7 @@ impl StorageTrait for LocalStorage {
         let full_key = self.full_key(key);
         debug!("检查本地缓存是否存在: {}", full_key);
         
-        let exists = self.cache.contains_key(&full_key).await;
+        let exists = self.cache.contains_key(&full_key);
         debug!("本地缓存{}: {}", if exists { "存在" } else { "不存在" }, full_key);
         Ok(exists)
     }
@@ -128,8 +127,8 @@ impl StorageTrait for LocalStorage {
         debug!("设置本地缓存过期时间: {}, TTL: {:?}", full_key, ttl);
         
         // moka不支持单独更新现有键的TTL，需要重新插入
-        if let Some(value) = self.cache.get(&full_key).await {
-            self.cache.insert(full_key.clone(), value).await;
+        if let Some(value) = self.cache.get(&full_key) {
+            self.cache.insert(full_key.clone(), value);
             info!("本地缓存过期时间更新成功: {}", full_key);
         } else {
             warn!("尝试更新不存在的本地缓存过期时间: {}", full_key);
@@ -189,14 +188,12 @@ impl StorageTrait for LocalStorage {
         // 这里使用简单的获取-修改-插入模式，在并发场景下可能不是严格原子的
         let current = self.cache
             .get(&full_key)
-            .await
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(0);
         
         let new_value = current + 1;
         self.cache
-            .insert(full_key.clone(), new_value.to_string())
-            .await;
+            .insert(full_key.clone(), new_value.to_string());
         
         debug!("原子递增完成: {}, 旧值: {}, 新值: {}", full_key, current, new_value);
         Ok(new_value)
@@ -210,14 +207,12 @@ impl StorageTrait for LocalStorage {
         // 这里使用简单的获取-修改-插入模式，在并发场景下可能不是严格原子的
         let current = self.cache
             .get(&full_key)
-            .await
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(0);
         
         let new_value = current - 1;
         self.cache
-            .insert(full_key.clone(), new_value.to_string())
-            .await;
+            .insert(full_key.clone(), new_value.to_string());
         
         debug!("原子递减完成: {}, 旧值: {}, 新值: {}", full_key, current, new_value);
         Ok(new_value)
@@ -226,7 +221,7 @@ impl StorageTrait for LocalStorage {
     async fn clear(&self) -> StorageResult<()> {
         debug!("清空本地缓存");
         
-        self.cache.invalidate_all().await;
+        self.cache.invalidate_all();
         info!("本地缓存清空完成");
         Ok(())
     }

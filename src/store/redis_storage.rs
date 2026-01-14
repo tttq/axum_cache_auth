@@ -35,24 +35,11 @@
 //! let storage = RedisStorage::from_config(config, "pocket:").await?;
 //! ```
 
-use crate::store::store_result::{StorageTrait, StorageError, StorageResult};
+use crate::store::store_result::{StorageError, StorageResult, StorageTrait};
 use async_trait::async_trait;
 use redis::aio::ConnectionManager;
-use redis::{AsyncCommands, Client};
+use redis::AsyncCommands;
 use std::time::Duration;
-
-fn default_host() -> String {
-    "localhost".to_string()
-}
-
-fn default_port() -> u16 {
-    6379
-}
-
-fn default_pool_size() -> u32 {
-    10
-}
-
 /// Redis存储实现
 #[derive(Clone)]
 pub struct RedisStorage {
@@ -65,6 +52,11 @@ impl RedisStorage {
             client,
             key_prefix,
         }
+    }
+    
+    /// 生成完整的键名（包含前缀）
+    fn full_key(&self, key: &str) -> String {
+        format!("{}:{}", self.key_prefix, key)
     }
 }
 
@@ -134,7 +126,7 @@ impl StorageTrait for RedisStorage {
         let mut conn = self.client.clone();
         let full_keys: Vec<String> = keys.iter().map(|k| self.full_key(k)).collect();
 
-        conn.get(&full_keys).await
+        conn.mget(&full_keys).await
             .map_err(|e| StorageError::OperationFailed(e.to_string()))
     }
 

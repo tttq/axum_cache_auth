@@ -292,6 +292,7 @@ dependencies = [
  "jsonwebtoken",
  "log",
  "moka",
+ "once_cell",
  "redis",
  "schemars",
  "serde",
@@ -303,6 +304,7 @@ dependencies = [
  "tokio",
  "tower",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]

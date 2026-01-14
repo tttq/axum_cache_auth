@@ -4,17 +4,15 @@ use crate::store::hybrid_storage::HybridStorage;
 use crate::store::local_storage::LocalStorage;
 use crate::store::redis_storage::RedisStorage;
 use crate::store::storage_config::StorageConfig;
-use crate::store::store_result::StorageTrait;
 use anyhow::Context;
-use async_trait::async_trait;
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::Client;
+use crate::auth::utils::StpUtil;
 use serde::de::DeserializeOwned;
 use spring::config::env::Env;
 use spring::config::toml::TomlConfigRegistry;
 use spring::config::{ConfigRegistry, Configurable};
 use spring::error::AppError;
-use spring::plugin::Plugin;
 use spring_web::aide::axum::ApiRouter;
 use std::path::Path;
 use std::sync::Arc;
@@ -26,7 +24,6 @@ pub mod auth;
 
 pub struct CacheRouterPlugin;
 
-#[async_trait]
 impl CacheRouterPlugin {
     pub async fn create_auth_router(&self, config_path: &str, auth_valid_trait:Arc<dyn AuthValidTrait>) -> (ApiRouter, HybridStorage) {
         let app = get_config_registry(config_path);
@@ -43,6 +40,7 @@ impl CacheRouterPlugin {
         let local_storage = Self::local_connect(store_config.clone()).await.expect("local connect failed");
         let hybrid_storage = HybridStorage::new(local_storage,redis_storage);
         let state = TokenState::new(Arc::new(hybrid_storage.clone()),Arc::new(auth_config),auth_valid_trait);
+        StpUtil::init_manager(state.manager.clone());
         (spring_web::handler::auto_router()
              .layer(TokenLayer::new(state.clone())),hybrid_storage)
     }

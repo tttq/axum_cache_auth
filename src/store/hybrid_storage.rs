@@ -1,8 +1,8 @@
-﻿use crate::store::local_storage::LocalStorage;
+use crate::store::local_storage::LocalStorage;
 use crate::store::redis_storage::RedisStorage;
-use crate::store::store_result::{StorageTrait, StorageError, StorageResult};
+use crate::store::store_result::{StorageTrait, StorageResult};
 use async_trait::async_trait;
-use log::{debug, error, info, warn};
+use log::{debug, error};
 use std::time::Duration;
 
 /// 混合存储实现
@@ -186,8 +186,9 @@ impl StorageTrait for HybridStorage {
                     Ok(exists) => {
                         if exists {
                             // Redis存在，同步到本地缓存
-                            let _ = self.redis_storage.get(key).await
-                                .and_then(|opt| opt.map(async |v| self.local_storage.set(key, &v, None).await).unwrap_or(Ok(())));
+                            if let Ok(Some(value)) = self.redis_storage.get(key).await {
+                                let _ = self.local_storage.set(key, &value, None).await;
+                            }
                         }
                         Ok(exists)
                     },

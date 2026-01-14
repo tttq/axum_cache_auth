@@ -338,13 +338,9 @@ impl JwtManager {
     /// Warning: This does not validate the signature!
     /// 警告：这不会验证签名！
     pub fn decode_without_validation(&self, token: &str) -> TokenResult<JwtClaims> {
-        let mut validation = Validation::new(self.algorithm.into());
-        validation.insecure_disable_signature_validation();
-        validation.validate_exp = false;
-
-        let decoding_key = DecodingKey::from_secret(self.secret.as_bytes());
-
-        let token_data = decode::<JwtClaims>(token, &decoding_key, &validation).map_err(|e| {
+        use jsonwebtoken::dangerous::insecure_decode;
+        
+        let token_data = insecure_decode::<JwtClaims>(token).map_err(|e| {
             TokenError::InvalidToken(format!("Failed to decode JWT: {}", e))
         })?;
 

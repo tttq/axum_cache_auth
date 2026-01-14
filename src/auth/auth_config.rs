@@ -2,9 +2,7 @@
 use serde::{Deserialize, Serialize};
 use spring::config::Configurable;
 use std::collections::HashSet;
-use std::time::Duration;
 
-/// token配置
 spring::submit_config_schema!("auth", AuthConfig);
 
 #[derive(Debug,Clone, Configurable, JsonSchema, Deserialize)]
@@ -17,7 +15,7 @@ pub struct AuthConfig {
     pub info_name: String,
     /// 项目名称
     #[serde(default = "default_project_name")]
-    pub project_name: Some(String),
+    pub project_name: Option<String>,
     /// token名称
     #[serde(default = "default_header_name")]
     pub header_name: Option<String>,
@@ -41,10 +39,10 @@ pub struct AuthConfig {
     pub storage: TokenStorage,
     /// token存储名称
     #[serde(default = "default_storage_name")]
-    pub storage_name: Some(String),
+    pub storage_name: Option<String>,
     /// cookie名称
     #[serde(default = "default_cookie_name")]
-    pub cookie_name: Some(String),
+    pub cookie_name: Option<String>,
     /// 白名单路径
     pub whitelist_paths: HashSet<String>,
 
@@ -94,7 +92,7 @@ impl Default for AuthConfig {
             expire: 3600,
             active_timeout: 3600,
             style: TokenStyle::Hash,
-            storage: TokenStorage::Memory,
+            storage: TokenStorage::All,
             storage_name: default_storage_name(),
             cookie_name: default_cookie_name(),
             whitelist_paths,
@@ -116,36 +114,37 @@ impl AuthConfig {
 
 }
 
-fn default_project_name() -> Some(String){
-    "pocket".to_string()
+fn default_project_name() -> Option<String>{
+    Some("pocket".to_string())
 }
-fn default_permission_key() -> Some(String){
-    format!("{}:{}",default_project_name(),"permission")
+fn default_permission_key() -> Option<String>{
+    Some(format!("{}:{}",default_project_name().unwrap(),"permission"))
 }
-fn default_header_prefix() -> Some(String){
-    "Bearer ".to_string()
+fn default_header_prefix() -> Option<String>{
+    Some("Bearer ".to_string())
 }
-fn default_header_name() -> Some(String){
-   "Authorization".to_string()
+fn default_header_name() -> Option<String>{
+   Some("Authorization".to_string())
 }
-fn default_cookie_name() -> Some(String){
-   "pocket_cookie".to_string()
+fn default_cookie_name() -> Option<String>{
+   Some("pocket_cookie".to_string())
 }
-fn default_permission_code() -> Some(String){
-   "X-Permission-Code".to_string()
+fn default_permission_code() -> Option<String>{
+   Some("X-Permission-Code".to_string())
 }
-fn default_role_code() -> Some(String){
-   "X-Role-Code".to_string()
+fn default_role_code() -> Option<String>{
+   Some("X-Role-Code".to_string())
 }
 
-fn default_storage_name()-> Some(String){
-   Some( format!("{}:{}",default_project_name(),"token"))
+fn default_storage_name()-> Option<String>{
+   Some( format!("{}:{}",default_project_name().unwrap(),"token"))
 }
 
 #[derive(Debug, Clone, JsonSchema, Deserialize)]
 pub enum TokenStorage {
     Memory,
     Redis,
+    All
 }
 
 /// Token 风格 | Token Style

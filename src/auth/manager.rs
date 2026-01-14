@@ -8,7 +8,6 @@ use crate::auth::token::{TokenInfo, TokenValue};
 use crate::store::hybrid_storage::HybridStorage;
 use crate::store::store_result::StorageTrait;
 use chrono::{DateTime, Duration, Utc};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// sa-token 管理器
@@ -146,16 +145,16 @@ impl TokenManager {
         // 如果过期时间为 None，使用配置的过期时间
         let now = Utc::now();
         if token_info.expire_time.is_none() {
-            if let Some(timeout) = self.config.expire {
-                token_info.expire_time = Some(now + Duration::from_std(timeout).unwrap());
-            }
+            let timeout = self.config.expire;
+            token_info.expire_time = Some(now + Duration::seconds(timeout as i64));
         }
+        let store_name = self.config.storage_name.clone().unwrap_or_default();
         // 确保登录类型不为空
         if token_info.login_type.is_empty() {
             token_info.login_type = "default".to_string();
         }
         // 存储 token 信息
-        let key = format!("{}:{}",self.config.storage_name, token.as_str());
+        let key = format!("{}:{}",store_name, token.as_str());
         let value =
             serde_json::to_string(&token_info).map_err(|e| TokenError::SerializationError(e))?;
 
@@ -169,9 +168,9 @@ impl TokenManager {
         // If login_type is not empty, use key format with login_type to avoid conflicts
         let login_token_key =
             if !token_info.login_type.is_empty() && token_info.login_type != "default" {
-                format!("{}:{}:{}",self.config.storage_name, login_id, token_info.login_type)
+                format!("{}:{}:{}",store_name, login_id, token_info.login_type)
             } else {
-                format!("{}:{}",self.config.storage_name, login_id)
+                format!("{}:{}",store_name, login_id)
             };
         self.storage
             .set(
@@ -193,7 +192,8 @@ impl TokenManager {
     pub async fn logout(&self, token: &TokenValue) -> TokenResult<()> {
         log::debug!("Manager: 开始 logout，token: {}", token);
         // 先从存储获取 token 信息，用于触发事件（不调用 get_token_info 避免递归）
-        let key = format!("{}:{}",self.config.storage_name, token.as_str());
+        let store_name = self.config.storage_name.clone().unwrap_or_default();
+        let key = format!("{}:{}",store_name, token.as_str());
         log::debug!("Manager: 查询 token 信息，key: {}", key);
         let token_info_str = self
             .storage
@@ -238,8 +238,9 @@ impl TokenManager {
 
     /// 根据登录 ID 登出所有 token
     pub async fn logout_by_login_id(&self, login_id: &str) -> TokenResult<()> {
+        let store_name = self.config.storage_name.clone().unwrap_or_default();
         // 获取所有 token 键的前缀
-        let token_prefix = self.config.storage_name;
+        let token_prefix = store_name;
 
         // 获取所有 token 键
         if let Ok(keys) = self.storage.keys(&format!("{}*", token_prefix)).await {
@@ -268,7 +269,8 @@ impl TokenManager {
 
     /// 获取 token 信息
     pub async fn get_token_info(&self, token: &TokenValue) -> TokenResult<TokenInfo> {
-        let key = format!("{}:{}",self.config.storage_name, token.as_str());
+        let store_name = self.config.storage_name.clone().unwrap_or_default();
+        let key = format!("{}:{}",store_name, token.as_str());
         let value = self
             .storage
             .get(&key)
@@ -329,9 +331,9 @@ impl TokenManager {
         use chrono::{Duration, Utc};
         let new_expire_time = Utc::now() + Duration::seconds(timeout_seconds);
         new_token_info.expire_time = Some(new_expire_time);
-
+        let store_name = self.config.storage_name.clone().unwrap_or_default();
         // 保存更新后的 token 信息
-        let key = format!("{}:{}",self.config.storage_name, token.as_str());
+        let key = format!("{}:{}",store_name, token.as_str());
         let value = serde_json::to_string(&new_token_info)
             .map_err(|e| TokenError::SerializationError(e))?;
 
@@ -346,7 +348,7 @@ impl TokenManager {
 
     /// 踢人下线
     pub async fn kick_out(&self, login_id: &str) -> TokenResult<()> {
-        let token_result = self
+        let _token_result = self
             .storage
             .get(&format!("sa:login:token:{}", login_id))
             .await;

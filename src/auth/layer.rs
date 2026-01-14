@@ -6,13 +6,12 @@ use crate::auth::context::AxumRequest;
 use crate::auth::error::messages;
 use crate::auth::manager::TokenManager;
 use crate::auth::token::TokenValue;
-use crate::auth::utils::{TokenContext, TokenContextManager};
+use crate::auth::{TokenContext, TokenContextManager};
 use crate::store::hybrid_storage::HybridStorage;
-use crate::store::store_result::StorageTrait;
 use async_trait::async_trait;
 use http::{Request, Response, StatusCode};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
+use spring_web::axum::body::Body;
 use spring_web::axum::response::IntoResponse;
 use spring_web::axum::Json;
 use std::sync::Arc;
@@ -22,9 +21,9 @@ use tower::{Layer, Service};
 #[async_trait]
 pub trait AuthValidTrait: Send + Sync {
     /// 验证用户是否拥有指定权限
-   async fn has_permission(&self,manager: Arc<TokenManager>, path:String, permission_code: Option<String>,key: Option<String>)->bool;
+   async fn has_permission(&self, manager: Arc<TokenManager>, path:String, permission_code: Option<String>,key: Option<String>)->bool;
     /// 验证用户是否拥有指定角色
-    async fn has_role(&self,manager: Arc<TokenManager>, path:String, role_code: Option<String>, role_key: Option<String>)->bool;
+    async fn has_role(&self, manager: Arc<TokenManager>, path:String, role_code: Option<String>, role_key: Option<String>)->bool;
 }
 
 /// Axum应用状态
@@ -69,23 +68,27 @@ impl<S> Layer<S> for TokenLayer {
     type Service = TokenMiddleware<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
+        let manager = self.state.manager.clone();
+        let config = &manager.config;
+        
         TokenMiddleware {
             inner,
-            manager: self.state.manager.clone(),
-            auth_valid_trait: self.state.manager.auth_valid_trait.clone(),
-            whitelist_paths:  self.state.manager.config.whitelist_paths.iter().map(|s| s.as_str()).collect(),
-            is_auth: self.state.manager.config.is_auth.unwrap_or_else(|| true),
-            header_name: self.state.manager.config.header_name.unwrap_or_default(),
-            header_prefix: self.state.manager.config.header_prefix.unwrap_or_default(),
-            cookie_name: self.state.manager.config.cookie_name.unwrap_or_default(),
-            header_permission_code: self.state.manager.config.header_permission_code.unwrap_or_default(),
-            header_role_code: self.state.manager.config.header_role_code.unwrap_or_default(),
+            manager: manager.clone(),
+            auth_valid_trait: manager.auth_valid_trait.clone(),
+            whitelist_paths: config.whitelist_paths.iter().cloned().collect(),
+            is_auth: *config.is_auth.as_ref().unwrap_or(&true),
+            header_name: config.header_name.as_ref().unwrap_or(&String::new()).clone(),
+            header_prefix: config.header_prefix.as_ref().unwrap_or(&String::new()).clone(),
+            cookie_name: config.cookie_name.as_ref().unwrap_or(&String::new()).clone(),
+            header_permission_code: config.header_permission_code.as_ref().unwrap_or(&String::new()).clone(),
+            header_role_code: config.header_role_code.as_ref().unwrap_or(&String::new()).clone(),
         }
     }
 }
 
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct TokenMiddleware<S> {
     pub(crate) inner: S,
     pub(crate) manager: Arc<TokenManager>,
@@ -109,26 +112,34 @@ pub struct TokenMiddleware<S> {
 
 }
 
-impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for TokenMiddleware<S>
+impl<S, ReqBody> Service<Request<ReqBody>> for TokenMiddleware<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
+    S: Service<Request<ReqBody>, Response = Response<Body>> + Clone + Send + 'static,
     S::Future: Send + 'static,
     ReqBody: Send + 'static,
-    ResBody: Default + Send + 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, mut request: Request<ReqBody>) -> Self::Future {
-        let mut inner = self.inner.clone();
-        let manager = self.manager.clone();
-        let whitelist_paths = self.whitelist_paths.clone();
-        let is_auth = self.is_auth.clone();
+    fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
+        // 克隆整个中间件，避免生命周期问题
+        let clone = self.clone();
+        let mut inner = clone.inner;
+        let manager = clone.manager;
+        let auth_valid_trait = clone.auth_valid_trait;
+        let whitelist_paths = clone.whitelist_paths;
+        let is_auth = clone.is_auth;
+        let header_permission_code = clone.header_permission_code;
+        let header_role_code = clone.header_role_code;
+        let header_name = clone.header_name;
+        let header_prefix = clone.header_prefix;
+        let cookie_name = clone.cookie_name;
+        
         Box::pin(async move {
             // 是否需要认证
             if !is_auth {
@@ -142,21 +153,26 @@ where
             }
             // 获取权限编码（如果有）
             let permission_code = request.headers()
-                .get(self.header_permission_code)
+                .get(&header_permission_code)
                 .and_then(|h| h.to_str().ok())
                 .map(|s| s.to_string());
 
-            // 获取权限编码（如果有）
+            // 获取角色编码（如果有）
             let role_code = request.headers()
-                .get(self.header_role_code)
+                .get(&header_role_code)
                 .and_then(|h| h.to_str().ok())
                 .map(|s| s.to_string());
 
 
-            let token_str = extract_token_from_request(&request, &self.manager);
+            let token_str = extract_token_from_request(
+                &request, 
+                header_name.as_str(),
+                cookie_name.as_str(),
+                header_prefix.as_str()
+            );
             if let Some(token_val) = token_str{
-                let token = token_val.map(TokenValue::new);
-                let (is_valid, token_info) = if let Some(ref t) = token {
+                let token_value = Some(TokenValue::new(token_val));
+                let (is_valid, token_info) = if let Some(ref t) = token_value {
                     let valid = manager.is_valid(t).await;
                     let info = if valid {
                         manager.get_token_info(t).await.ok()
@@ -169,19 +185,30 @@ where
                 };
                 // 认证失败
                 if !is_valid {
-                    return create_unauthorized_response()
+                    return Ok(create_unauthorized_response())
                 }
-                let mut is_role_valid = false;
-                let user_client_key = format!(":{}:{:?}",token_info.unwrap().login_id,token_info.unwrap().client_id);
-                // 验证用户是否拥有指定角色
-                if self.auth_valid_trait.has_role(self.manager,path.to_string(), role_code,user_client_key){
-                    is_role_valid = true;
+                let token_info = token_info.unwrap();
+                let user_client_key = format!(":{}:{:?}", &token_info.login_id, &token_info.client_id);
+                
+                let is_role_valid = auth_valid_trait.has_role(
+                    manager.clone(),
+                    path.to_string(),
+                    role_code.clone(),
+                    Some(user_client_key.clone())
+                ).await;
+                
+                let has_permission = auth_valid_trait.has_permission(
+                    manager.clone(),
+                    path.to_string(),
+                    permission_code.clone(),
+                    Some(user_client_key)
+                ).await;
+                
+                // 只有当既没有角色权限也没有功能权限时，才返回无权限响应
+                if !is_role_valid && !has_permission {
+                    return Ok(create_forbidden_response())
                 }
-                // 验证用户是否拥有指定权限
-                if !self.auth_valid_trait.has_permission(self.manager,path.to_string(), permission_code,user_client_key) && !is_role_valid{
-                    return create_forbidden_response()
-                }
-              let context =  TokenContext::new_with_token(token, token_info,token_info.unwrap().login_id);
+              let context =  TokenContext::new_with_token(token_value.unwrap(), token_info.clone(),token_info.login_id.clone());
                 // 使用 TokenContextManager::scope 包装后续请求处理
                 return TokenContextManager::scope(context, move || async move {
                     let response=    inner.call(request).await;
@@ -189,36 +216,35 @@ where
                     response
                 }).await;
             }
-            return create_unauthorized_response();
+            return Ok(create_unauthorized_response());
         })
     }
 }
 
 
 /// 创建未授权响应
-fn create_unauthorized_response() -> Result<spring_web::axum::response::Response, StatusCode> {
+fn create_unauthorized_response() -> spring_web::axum::response::Response {
     spring::tracing::log::debug!("Authentication failed, no valid token found");
-    Ok((
+    (
         StatusCode::UNAUTHORIZED,
         Json(
             &json!({
                 "code": 401,
                 "message": messages::INVALID_TOKEN
             })),
-    ).into_response())
+    ).into_response()
 }
 
 /// 创建无权限响应
-fn create_forbidden_response() -> Result<spring_web::axum::response::Response, StatusCode> {
+fn create_forbidden_response() -> spring_web::axum::response::Response {
     spring::tracing::log::debug!("Permission check failed");
-    Ok(
-        (
+    (
         StatusCode::FORBIDDEN,
         Json( &json!({
                 "code": 403,
                 "message": messages::PERMISSION_REQUIRED
             })),
-    ).into_response())
+    ).into_response()
 }
 /// 从请求中提取 Token
 ///
@@ -235,21 +261,18 @@ fn create_forbidden_response() -> Result<spring_web::axum::response::Response, S
 /// # 返回
 /// - `Some(token)` - 找到有效的 token
 /// - `None` - 未找到 token
-pub fn extract_token_from_request<T>(request: &Request<T>, manager: &TokenManager) -> Option<String> {
+pub fn extract_token_from_request<T>(request: &Request<T>, token_name: &str,cookie_name: &str,header_prefix: &str) -> Option<String> {
     let adapter = AxumRequestAdapter::new(request);
-    // 从配置中获取 token_name
-    let token_name = &manager.config.header_name.unwrap_or_default();
-    let cookie_name = &manager.config.cookie_name.unwrap_or_default();
 
     // 1. 优先从 Header 中获取（检查 token_name 配置的头）
     if let Some(token) = adapter.get_header(token_name) {
-        return Some(extract_bearer_token(&token));
+        return Some(extract_bearer_token(&token,header_prefix));
     }
 
     // 2. 如果 token_name 不是 "Authorization"，也尝试从 "Authorization" 头获取
     if token_name != "Authorization" {
         if let Some(token) = adapter.get_header("Authorization") {
-            return Some(extract_bearer_token(&token));
+            return Some(extract_bearer_token(&token,header_prefix));
         }
     }
 
@@ -270,10 +293,10 @@ pub fn extract_token_from_request<T>(request: &Request<T>, manager: &TokenManage
 
 
 
-/// Check if a path requires authentication 检查路径是否需要鉴权
+/// Check if a path is in the whitelist 检查路径是否在白名单中
 pub fn check_path(whitelist_paths: &Vec<String>, path: &str) -> bool {
     // 白名单-请求排除列表
-    need_auth(path, &whitelist_paths)
+    match_any(path, whitelist_paths)
 }
 
 /// 提取 Bearer Token
@@ -281,12 +304,10 @@ pub fn check_path(whitelist_paths: &Vec<String>, path: &str) -> bool {
 /// 支持两种格式：
 /// - `Bearer <token>` - 标准 Bearer Token 格式
 /// - `<token>` - 直接的 Token 字符串
-fn extract_bearer_token(header_value: &str) -> String {
-    const BEARER_PREFIX: &str = "Bearer ";
-
-    if header_value.starts_with(BEARER_PREFIX) {
+fn extract_bearer_token(header_value: &str,header_prefix: &str) -> String {
+    if header_value.starts_with(header_prefix) {
         // 去除 "Bearer " 前缀
-        header_value[BEARER_PREFIX.len()..].trim().to_string()
+        header_value[header_prefix.len()..].trim().to_string()
     } else {
         // 直接返回 token
         header_value.trim().to_string()

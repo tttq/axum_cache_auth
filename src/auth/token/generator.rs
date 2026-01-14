@@ -3,11 +3,10 @@
 //! Supports multiple token styles including UUID, Random, and JWT
 //! 支持多种 Token 风格，包括 UUID、随机字符串和 JWT
 
-
-use chrono::Utc;
-use sea_orm::prelude::Uuid;
 use crate::auth::auth_config::{AuthConfig, TokenStyle};
 use crate::auth::token::{JwtAlgorithm, JwtClaims, JwtManager, TokenValue};
+use chrono::Utc;
+use uuid::Uuid;
 
 pub struct TokenGenerator;
 
@@ -49,7 +48,7 @@ impl TokenGenerator {
     
     /// 生成随机字符串
     pub fn generate_random(length: usize) -> TokenValue {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let uuid = Uuid::new_v4();
         let random_bytes = uuid.as_bytes();
         let hash = Sha256::digest(random_bytes);
@@ -134,7 +133,7 @@ impl TokenGenerator {
     ///
     /// * `login_id` - User login ID | 用户登录ID
     pub fn generate_hash(login_id: &str) -> TokenValue {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         // 如果 login_id 为空，使用时间戳代替
         let login_id_value = if login_id.is_empty() {
             Utc::now().timestamp_millis().to_string()
@@ -163,7 +162,7 @@ impl TokenGenerator {
     /// 示例：1760403556789_a3b2c1d4e5f6g7h8
     pub fn generate_timestamp() -> TokenValue {
         use chrono::Utc;
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         
         let timestamp = Utc::now().timestamp_millis();
         let uuid = Uuid::new_v4();
@@ -188,7 +187,7 @@ impl TokenGenerator {
     /// Example: aB3dE9fG
     /// 示例：aB3dE9fG
     pub fn generate_tik() -> TokenValue {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         
         const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         const TOKEN_LENGTH: usize = 8;
