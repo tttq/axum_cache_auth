@@ -35,7 +35,7 @@ pub struct AuthConfig {
     pub expire: u64,
     /// token样式
     pub style: TokenStyle,
-    /// token存储
+    /// 存储类型
     pub storage: TokenStorage,
     /// token存储名称
     #[serde(default = "default_storage_name")]

@@ -1,6 +1,6 @@
 [package]
 name = "axum_cache_auth"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -14,11 +14,10 @@ jsonwebtoken = { version = "10.2", features = ["rust_crypto"] }  # JWT 令牌处
 
 # Web 相关
 http = { version = "1.0" }        # HTTP 协议核心定义
-http-body = { version = "1.0" }   # HTTP 请求/响应体处理
 tower = { version = "0.5.2" }     # 模块化 HTTP 中间件框架
 urlencoding = { version = "2.1" }  # URL 编码/解码
-spring = { version = "0.4.7" }                  # Spring 核心框架
-spring-web = { version = "0.4.12", features = ["openapi"] }  # Spring Web 框架，包含 OpenAPI 支持
+spring = { version = "0.4.8" }                  # Spring 核心框架
+spring-web = { version = "0.4.14", features = ["openapi"] }  # Spring Web 框架，包含 OpenAPI 支持
 schemars = "1.1.0"                              # JSON Schema 生成库，用于 OpenAPI
 
 # 序列化和反序列化

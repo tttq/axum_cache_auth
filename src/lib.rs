@@ -1,4 +1,4 @@
-﻿use crate::auth::auth_config::AuthConfig;
+use crate::auth::auth_config::AuthConfig;
 use crate::auth::layer::{AuthValidTrait, TokenLayer, TokenState};
 use crate::store::hybrid_storage::HybridStorage;
 use crate::store::local_storage::LocalStorage;
@@ -38,7 +38,7 @@ impl CacheRouterPlugin {
         let connect = Self::redis_connect(store_config.clone()).await.expect("redis connect failed");
         let redis_storage =  RedisStorage::new(connect, store_config.key_prefix.clone());
         let local_storage = Self::local_connect(store_config.clone()).await.expect("local connect failed");
-        let hybrid_storage = HybridStorage::new(local_storage,redis_storage);
+        let hybrid_storage = HybridStorage::new(local_storage, redis_storage, auth_config.clone().storage);
         let state = TokenState::new(Arc::new(hybrid_storage.clone()),Arc::new(auth_config),auth_valid_trait);
         StpUtil::init_manager(state.manager.clone());
         (spring_web::handler::auto_router()

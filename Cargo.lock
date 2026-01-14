@@ -281,14 +281,13 @@ dependencies = [
 
 [[package]]
 name = "axum_cache_auth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "hex",
  "http",
- "http-body",
  "jsonwebtoken",
  "log",
  "moka",
@@ -2429,17 +2428,19 @@ dependencies = [
 
 [[package]]
 name = "spring-web"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb6e6e26d5d9c9330f2c5e685a8e6798ccb58dd31cd617c0157448f1a23890c0"
+checksum = "93b71a2a0e343957942544dd67b45072976cf18cb99476c818ad70163a5719b2"
 dependencies = [
  "aide",
  "anyhow",
  "axum",
  "byte-unit",
+ "indexmap",
  "inventory",
  "schemars",
  "serde",
+ "serde_json",
  "spring",
  "spring-macros",
  "thiserror",
