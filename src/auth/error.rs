@@ -130,6 +130,9 @@ pub enum TokenError {
 
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    #[error("Permission not found: {0}")]
+    PermissionNotFound(String),
 }
 
 impl TokenError {

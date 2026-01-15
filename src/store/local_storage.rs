@@ -67,6 +67,63 @@ impl LocalStorage {
             None
         }
     }
+
+    /// 简单的glob模式匹配（支持*和?）
+    fn matches_pattern(&self, key: &str, pattern: &str) -> bool {
+        let pattern_chars: Vec<char> = pattern.chars().collect();
+        let key_chars: Vec<char> = key.chars().collect();
+
+        let mut p_idx = 0; // 模式索引
+        let mut k_idx = 0; // 键索引
+        let mut star_idx = None; // 最近的*位置
+        let mut match_idx = 0; // *匹配的位置
+
+        while k_idx < key_chars.len() {
+            if p_idx < pattern_chars.len() {
+                match pattern_chars[p_idx] {
+                    '*' => {
+                        // 记录*的位置，并继续匹配
+                        star_idx = Some(p_idx);
+                        match_idx = k_idx;
+                        p_idx += 1;
+                        continue;
+                    },
+                    '?' => {
+                        // ?匹配任意单个字符
+                        p_idx += 1;
+                        k_idx += 1;
+                        continue;
+                    },
+                    c => {
+                        if c == key_chars[k_idx] {
+                            // 字符匹配，继续
+                            p_idx += 1;
+                            k_idx += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // 如果没有匹配，回溯到最近的*
+            if let Some(star_p_idx) = star_idx {
+                p_idx = star_p_idx + 1;
+                match_idx += 1;
+                k_idx = match_idx;
+            } else {
+                // 没有*可以回溯，匹配失败
+                return false;
+            }
+        }
+
+        // 处理模式末尾的*
+        while p_idx < pattern_chars.len() && pattern_chars[p_idx] == '*' {
+            p_idx += 1;
+        }
+
+        // 如果模式已经处理完，匹配成功
+        p_idx == pattern_chars.len()
+    }
 }
 
 #[async_trait]
@@ -225,9 +282,25 @@ impl StorageTrait for LocalStorage {
 
     async fn keys(&self, pattern: &str) -> StorageResult<Vec<String>> {
         debug!("获取匹配模式的本地缓存键: {}", pattern);
-        
-        // moka不支持直接获取所有键或匹配键，返回空列表
-        // 如果需要支持此功能，可能需要额外维护一个键的集合
-        Ok(Vec::new())
+    
+        let full_pattern = self.full_key(pattern);
+        debug!("完整匹配模式: {}", full_pattern);
+    
+        let mut matching_keys = Vec::new();
+    
+        // 遍历所有缓存键并匹配模式
+        for (key, _) in self.cache.iter() {
+            let cache_key = key.clone();
+            if self.matches_pattern(&cache_key.clone(), &full_pattern) {
+                // 解析出原始键（去除前缀）
+                if let Some(original_key) = self.parse_key(&cache_key) {
+                    matching_keys.push(original_key.to_string());
+                }
+            }
+        }
+    
+        debug!("找到 {} 个匹配的键", matching_keys.len());
+        Ok(matching_keys)
     }
+
 }

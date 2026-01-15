@@ -8,6 +8,7 @@ use crate::auth::manager::TokenManager;
 use crate::auth::token::TokenValue;
 use crate::auth::{TokenContext, TokenContextManager};
 use crate::store::hybrid_storage::HybridStorage;
+use crate::CustomTimeoutTrait;
 use async_trait::async_trait;
 use http::{Request, Response, StatusCode};
 use serde_json::json;
@@ -34,9 +35,9 @@ pub struct TokenState {
 
 impl TokenState {
     /// 从存储和配置创建状态
-    pub fn new(storage: Arc<HybridStorage>, config: Arc<AuthConfig>, auth_valid_trait:Arc<dyn AuthValidTrait>) -> Self {
+    pub fn new(storage: Arc<HybridStorage>, config: Arc<AuthConfig>, auth_valid_trait:Arc<dyn AuthValidTrait>, custom_timeout_trait:Option<Arc<dyn CustomTimeoutTrait>>) -> Self {
         Self {
-            manager: Arc::new(TokenManager::new(storage, config,auth_valid_trait)),
+            manager: Arc::new(TokenManager::new(storage, config,auth_valid_trait,custom_timeout_trait)),
         }
     }
 
@@ -141,82 +142,113 @@ where
         let cookie_name = clone.cookie_name;
         
         Box::pin(async move {
-            // 是否需要认证
-            if !is_auth {
-                return inner.call(request).await;
-            }
             let path = request.uri().path();
-            // 是否白名单路径
-           let is_white_path= check_path(&whitelist_paths,path);
-            if is_white_path {
-                return inner.call(request).await;
-            }
-            // 获取权限编码（如果有）
-            let permission_code = request.headers()
-                .get(&header_permission_code)
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.to_string());
-
-            // 获取角色编码（如果有）
-            let role_code = request.headers()
-                .get(&header_role_code)
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.to_string());
-
-
+            // 是否需要认证检查
+            let need_auth_check = is_auth && !check_path(&whitelist_paths, path);
+            
+            // 提取token（无论是否需要认证，都尝试提取）
             let token_str = extract_token_from_request(
                 &request, 
                 header_name.as_str(),
                 cookie_name.as_str(),
                 header_prefix.as_str()
             );
-            if let Some(token_val) = token_str{
-                let token_value = Some(TokenValue::new(token_val));
-                let (is_valid, token_info) = if let Some(ref t) = token_value {
-                    let valid = manager.is_valid(t).await;
-                    let info = if valid {
-                        manager.get_token_info(t).await.ok()
-                    } else {
-                        None
-                    };
-                    (valid, info)
+            
+            // 处理token（如果有）
+            if let Some(token_val) = token_str {
+                let token_value = TokenValue::new(token_val);
+                let valid = manager.is_valid(&token_value).await;
+                let token_info = if valid {
+                    manager.get_token_info(&token_value).await.ok()
                 } else {
-                    (false, None)
+                    None
                 };
-                // 认证失败
-                if !is_valid {
-                    return Ok(create_unauthorized_response())
+                
+                // 如果需要认证检查
+                if need_auth_check {
+                    // 认证失败
+                    if !valid {
+                        return Ok(create_unauthorized_response());
+                    }
+                    
+                    let token_info = token_info.unwrap();
+                    let user_client_key = format!(":{}:{:?}", &token_info.login_id, &token_info.client_id);
+                    
+                    // 获取权限编码（如果有）
+                    let permission_code = request.headers()
+                        .get(&header_permission_code)
+                        .and_then(|h| h.to_str().ok())
+                        .map(|s| s.to_string());
+                    
+                    // 获取角色编码（如果有）
+                    let role_code = request.headers()
+                        .get(&header_role_code)
+                        .and_then(|h| h.to_str().ok())
+                        .map(|s| s.to_string());
+                    
+                    let is_role_valid = auth_valid_trait.has_role(
+                        manager.clone(),
+                        path.to_string(),
+                        role_code.clone(),
+                        Some(user_client_key.clone())
+                    ).await;
+                    
+                    let has_permission = auth_valid_trait.has_permission(
+                        manager.clone(),
+                        path.to_string(),
+                        permission_code.clone(),
+                        Some(user_client_key)
+                    ).await;
+                    
+                    // 只有当既没有角色权限也没有功能权限时，才返回无权限响应
+                    if !is_role_valid && !has_permission {
+                        return Ok(create_forbidden_response());
+                    }
+                    
+                    // 创建上下文并调用内部服务
+                    let context = TokenContext::new_with_client_token(
+                        token_value, 
+                        token_info.clone(),
+                        token_info.login_id.clone(),
+                        token_info.client_id.unwrap_or_default().clone(),
+                        token_info.tenant_id.unwrap_or_default().clone()
+                    );
+                    // 使用 TokenContextManager::scope 包装后续请求处理
+                    return TokenContextManager::scope(context, move || async move {
+                        let response = inner.call(request).await;
+                        TokenContextManager::clear();
+                        response
+                    }).await;
+                } else {
+                    // 不需要认证检查，但有有效的token，写入上下文
+                    if let Some(token_info) = token_info {
+                        let context = TokenContext::new_with_client_token(
+                            token_value, 
+                            token_info.clone(),
+                            token_info.login_id.clone(),
+                            token_info.client_id.unwrap_or_default().clone(),
+                            token_info.tenant_id.unwrap_or_default().clone()
+                        );
+                        // 使用 TokenContextManager::scope 包装后续请求处理
+                        return TokenContextManager::scope(context, move || async move {
+                            let response = inner.call(request).await;
+                            TokenContextManager::clear();
+                            response
+                        }).await;
+                    }
+                    // 如果token无效或没有token_info，直接调用内部服务
+                    return inner.call(request).await;
                 }
-                let token_info = token_info.unwrap();
-                let user_client_key = format!(":{}:{:?}", &token_info.login_id, &token_info.client_id);
-                
-                let is_role_valid = auth_valid_trait.has_role(
-                    manager.clone(),
-                    path.to_string(),
-                    role_code.clone(),
-                    Some(user_client_key.clone())
-                ).await;
-                
-                let has_permission = auth_valid_trait.has_permission(
-                    manager.clone(),
-                    path.to_string(),
-                    permission_code.clone(),
-                    Some(user_client_key)
-                ).await;
-                
-                // 只有当既没有角色权限也没有功能权限时，才返回无权限响应
-                if !is_role_valid && !has_permission {
-                    return Ok(create_forbidden_response())
+            } else {
+                // 没有token
+                if need_auth_check {
+                    // 需要认证但没有token，返回未授权
+                    return Ok(create_unauthorized_response());
+                } else {
+                    // 不需要认证，直接调用内部服务
+                    return inner.call(request).await;
                 }
-              let context =  TokenContext::new_with_token(token_value.unwrap(), token_info.clone(),token_info.login_id.clone());
-                // 使用 TokenContextManager::scope 包装后续请求处理
-                return TokenContextManager::scope(context, move || async move {
-                    let response=    inner.call(request).await;
-                    TokenContextManager::clear();
-                    response
-                }).await;
             }
-            return Ok(create_unauthorized_response());
         })
     }
 }

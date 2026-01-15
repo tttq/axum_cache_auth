@@ -19,14 +19,15 @@
 //! StpUtil::set_permissions(10001, vec!["user:list".to_string()]).await?;
 //! ```
 
+use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::sync::Arc;
-use once_cell::sync::OnceCell;
 
 use crate::auth::error::{TokenError, TokenResult};
 use crate::auth::manager::TokenManager;
 use crate::auth::token::{TokenInfo, TokenValue};
-use crate::auth::{TokenContextManager};
+use crate::auth::TokenContextManager;
 use crate::store::store_result::StorageTrait;
 
 /// 全局 TokenManager 实例
@@ -38,10 +39,28 @@ static GLOBAL_MANAGER: OnceCell<Arc<TokenManager>> = OnceCell::new();
 pub trait LoginId {
     fn to_login_id(&self) -> String;
 }
+pub trait ClientId {
+    fn to_client_id(&self) -> String;
+}
+pub trait TenantId {
+    fn to_tenant_id(&self) -> String;
+}
 
 // 为所有实现了 Display 的类型自动实现 LoginId
 impl<T: Display> LoginId for T {
     fn to_login_id(&self) -> String {
+        self.to_string()
+    }
+}
+// 为所有实现了 Display 的类型自动实现 LoginId
+impl<T: Display> ClientId for T {
+    fn to_client_id(&self) -> String {
+        self.to_string()
+    }
+}
+// 为所有实现了 Display 的类型自动实现 LoginId
+impl<T: Display> TenantId for T {
+    fn to_tenant_id(&self) -> String {
         self.to_string()
     }
 }
@@ -129,19 +148,71 @@ impl StpUtil {
     }
     
     /// 踢人下线（根据登录ID）
-    pub async fn kick_out(login_id: impl LoginId) -> TokenResult<()> {
-        Self::get_manager().kick_out(&login_id.to_login_id()).await
+    pub async fn kick_out(login_id: impl LoginId, client_id: impl ClientId) -> TokenResult<()> {
+        Self::get_manager().kick_out(&login_id.to_login_id(), &client_id.to_client_id()).await
     }
     
     /// 强制登出（根据登录ID）
-    pub async fn logout_by_login_id(login_id: impl LoginId) -> TokenResult<()> {
-        Self::get_manager().logout_by_login_id(&login_id.to_login_id()).await
+    pub async fn logout_by_login_id(login_id: impl LoginId, client_id: impl ClientId) -> TokenResult<()> {
+        Self::get_manager().logout_by_login_id(&login_id.to_login_id(), &client_id.to_client_id()).await
     }
     
     /// 根据 token 登出（别名方法，更直观）
     pub async fn logout_by_token(token: &TokenValue) -> TokenResult<()> {
         Self::logout(token).await
     }
+    /// 设置权限
+    pub async fn set_permission<T: Serialize>(login_id: impl LoginId, client_id: impl ClientId, permission: T) -> TokenResult<()> {
+        let timeout = Self::get_manager().config.active_timeout;
+        Self::get_manager().set_permission::<T>(&login_id.to_login_id(), &client_id.to_client_id(), permission,timeout).await
+    }
+    
+    /// 获取权限
+    pub async fn get_permission<T: for<'de> Deserialize<'de> + Default>() -> TokenResult<T> {
+        match Self::get_token_info_current() {
+            Ok(token_info) => {
+                let login_id = &token_info.login_id;
+                let client_id = token_info.client_id.as_deref().unwrap_or("");
+                Self::get_manager().get_permission::<T>(login_id, client_id).await
+            },
+            Err(_) => 
+            Ok(T::default())
+        }
+
+    }
+    
+    /// 设置角色
+    pub async fn set_role<T: Serialize>(login_id: impl LoginId, client_id: impl ClientId, role: T) -> TokenResult<()> {
+        let timeout = Self::get_manager().config.active_timeout;
+        Self::get_manager().set_role(&login_id.to_login_id(), &client_id.to_client_id(), role, timeout).await
+    }
+    
+    /// 获取角色
+    pub async fn get_role<T: for<'de> Deserialize<'de> + Default>() -> TokenResult<T> {
+        match Self::get_token_info_current() {
+            Ok(token_info) => {
+                let login_id = &token_info.login_id;
+                let client_id = token_info.client_id.as_deref().unwrap_or("");
+                Self::get_manager().get_role::<T>(login_id, client_id).await
+            },
+            Err(_) => Ok(T::default())
+        }
+    }
+
+    /// 设置自定义缓存
+    pub async fn set_custom_cache<T: Serialize>(custom_key:&str, val: T) -> TokenResult<()> {
+         let timeout = Self::get_manager().config.active_timeout;
+        Self::get_manager().set_custom_cache::<T>(custom_key, val, timeout).await
+    }
+    /// 清除自定义缓存
+    pub async fn clean_custom_cache(custom_key:&str) -> TokenResult<()> {
+        Self::get_manager().clean_custom_cache(custom_key).await
+    }
+    /// 获取自定义缓存
+    pub async fn get_custom_cache<T: for<'de> Deserialize<'de> + Default>(custom_key:&str) -> TokenResult<T> {
+        Self::get_manager().get_custom_cache::<T>(custom_key).await
+    }
+
     
     // ==================== 当前会话操作（无参数，从上下文获取）====================
     
@@ -317,7 +388,7 @@ impl StpUtil {
         let config = &manager.config;
         
         // 从存储中获取该用户的 token
-        let store_name = config.storage_name.clone().unwrap_or_default();
+        let store_name = config.cache_token_key.clone().unwrap_or_default();
         let key = format!("{}:{}", store_name, login_id_str);
         match manager.storage.get(&key).await {
             Ok(Some(token_str)) => Ok(TokenValue::new(token_str)),
@@ -343,11 +414,12 @@ impl StpUtil {
     /// 批量踢人下线
     pub async fn kick_out_batch<T: LoginId>(
         login_ids: &[T],
+        client_id: &str,
     ) -> TokenResult<Vec<Result<(), TokenError>>> {
         let manager = Self::get_manager();
         let mut results = Vec::new();
         for login_id in login_ids {
-            results.push(manager.kick_out(&login_id.to_login_id()).await);
+            results.push(manager.kick_out(&login_id.to_login_id(), client_id).await);
         }
         Ok(results)
     }
@@ -372,7 +444,17 @@ impl StpUtil {
         timeout_seconds: i64,
     ) -> TokenResult<()> {
         let manager = Self::get_manager();
-        manager.renew_timeout(token, timeout_seconds).await
+       let token_info=  Self::get_token_info(token).await?;
+        manager.renew_timeout_token(token, timeout_seconds as u64, &token_info).await
+    }
+
+    /// 续期自定义（重置过期时间）
+    pub async fn renew_custom_timeout(
+        key: &str,
+        timeout_seconds: i64,
+    ) -> TokenResult<()> {
+        let manager = Self::get_manager();
+        manager.renew_timeout(key, timeout_seconds as u64).await
     }
     
     // ==================== 额外数据操作 | Extra Data Operations ====================
@@ -390,7 +472,7 @@ impl StpUtil {
         let mut token_info = manager.get_token_info(token).await?;
         token_info.extra_data = Some(extra_data);
         
-        let store_name = manager.config.storage_name.clone().unwrap_or_default();
+        let store_name = manager.config.cache_token_key.clone().unwrap_or_default();
         let key = format!("{}:{}", store_name, token.as_str());
         let value = serde_json::to_string(&token_info)
             .map_err(|e| TokenError::SerializationError(e))?;

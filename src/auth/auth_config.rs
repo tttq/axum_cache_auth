@@ -23,8 +23,12 @@ pub struct AuthConfig {
     #[serde(default = "default_header_prefix")]
     pub header_prefix: Option<String>,
     /// 权限key
-    #[serde(default = "default_permission_key")]
-    pub permission_key: Option<String>,
+    #[serde(default = "default_cache_permission_key")]
+    pub cache_permission_key: Option<String>,
+
+    /// 角色key
+    #[serde(default = "default_cache_role_key")]
+    pub cache_role_key: Option<String>,
     /// 权限code
     #[serde(default = "default_permission_code")]
     pub header_permission_code: Option<String>,
@@ -38,8 +42,8 @@ pub struct AuthConfig {
     /// 存储类型
     pub storage: TokenStorage,
     /// token存储名称
-    #[serde(default = "default_storage_name")]
-    pub storage_name: Option<String>,
+    #[serde(default = "default_cache_token_key")]
+    pub cache_token_key: Option<String>,
     /// cookie名称
     #[serde(default = "default_cookie_name")]
     pub cookie_name: Option<String>,
@@ -86,14 +90,15 @@ impl Default for AuthConfig {
             project_name: default_project_name(),
             header_name: default_header_name(),
             header_prefix: default_header_prefix(),
-            permission_key: default_permission_key(),
+            cache_role_key: default_cache_role_key(),
+            cache_permission_key: default_cache_permission_key(),
             header_permission_code: default_permission_code(),
             header_role_code: default_role_code(),
             expire: 3600,
             active_timeout: 3600,
             style: TokenStyle::Hash,
             storage: TokenStorage::All,
-            storage_name: default_storage_name(),
+            cache_token_key: default_cache_token_key(),
             cookie_name: default_cookie_name(),
             whitelist_paths,
             jwt_secret_key: None,
@@ -117,8 +122,11 @@ impl AuthConfig {
 fn default_project_name() -> Option<String>{
     Some("pocket".to_string())
 }
-fn default_permission_key() -> Option<String>{
+fn default_cache_permission_key() -> Option<String>{
     Some(format!("{}:{}",default_project_name().unwrap(),"permission"))
+}
+fn default_cache_role_key() -> Option<String>{
+    Some(format!("{}:{}",default_project_name().unwrap(),"role"))
 }
 fn default_header_prefix() -> Option<String>{
     Some("Bearer ".to_string())
@@ -136,7 +144,7 @@ fn default_role_code() -> Option<String>{
    Some("X-Role-Code".to_string())
 }
 
-fn default_storage_name()-> Option<String>{
+fn default_cache_token_key()-> Option<String>{
    Some( format!("{}:{}",default_project_name().unwrap(),"token"))
 }
 

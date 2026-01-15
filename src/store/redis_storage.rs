@@ -58,6 +58,16 @@ impl RedisStorage {
     fn full_key(&self, key: &str) -> String {
         format!("{}:{}", self.key_prefix, key)
     }
+    
+    /// 解析完整键名，获取原始键（去除前缀）
+    fn parse_key<'a>(&self, full_key: &'a str) -> Option<&'a str> {
+        let expected_prefix = format!("{}:", self.key_prefix);
+        if full_key.starts_with(&expected_prefix) {
+            Some(&full_key[expected_prefix.len()..])
+        } else {
+            None
+        }
+    }
 }
 
 #[async_trait]
@@ -188,5 +198,20 @@ impl StorageTrait for RedisStorage {
         }
 
         Ok(())
+    }
+    /// 获取所有匹配的键
+    async fn keys(&self, pattern: &str) -> StorageResult<Vec<String>> {
+        let mut conn = self.client.clone();
+        let full_pattern = self.full_key(pattern);
+
+        let keys: Vec<String> = conn.keys(&full_pattern).await
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+        
+        // 解析出原始键（去除前缀）
+        let original_keys: Vec<String> = keys.into_iter()
+            .filter_map(|key| self.parse_key(&key).map(|k| k.to_string()))
+            .collect();
+        
+        Ok(original_keys)
     }
 }

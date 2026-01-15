@@ -30,6 +30,12 @@ pub struct TokenContext {
 
     /// 登录 ID | Login ID
     pub login_id: Option<String>,
+
+    /// 客户端 ID | Client ID
+    pub client_id: Option<String>,
+
+    /// 租户 ID | Tenant ID
+    pub tenant_id: Option<String>,
 }
 impl TokenContext{
     pub fn new() -> Self {
@@ -37,6 +43,8 @@ impl TokenContext{
             token: None,
             token_info: None,
             login_id: None,
+            client_id: None,
+            tenant_id: None,
         }
     }
     pub fn new_with_token(token: TokenValue,token_info: TokenInfo,login_id: String) -> Self {
@@ -44,6 +52,18 @@ impl TokenContext{
             token: Some(token),
             token_info: Some(Arc::new(token_info)),
             login_id: Some(login_id),
+            client_id: None,
+            tenant_id: None,
+        }
+    }
+
+    pub fn new_with_client_token(token: TokenValue,token_info: TokenInfo,login_id: String,client_id: String,tenant_id: String) -> Self {
+        Self {
+            token: Some(token),
+            token_info: Some(Arc::new(token_info)),
+            login_id: Some(login_id),
+            client_id: Some(client_id),
+            tenant_id: Some(tenant_id),
         }
     }
 }

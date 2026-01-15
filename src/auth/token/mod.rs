@@ -93,8 +93,10 @@ pub struct TokenInfo {
     /// Refresh Token 过期时间 | Refresh Token expiration time
     pub refresh_token_expire_time: Option<DateTime<Utc>>,
     /// 客户端标识 | Client identifier
+    #[serde(default = "default_id")]
     pub client_id: Option<String>,
     /// 租户标识 | Tenant identifier
+    #[serde(default = "default_id")]
     pub tenant_id: Option<String>,
 }
 
@@ -113,8 +115,8 @@ impl TokenInfo {
             nonce: None,
             refresh_token: None,
             refresh_token_expire_time: None,
-            client_id: None,
-            tenant_id: None,
+            client_id: default_id(),
+            tenant_id: default_id(),
         }
     }
 
@@ -129,6 +131,10 @@ impl TokenInfo {
     pub fn update_active_time(&mut self) {
         self.last_active_time = Utc::now();
     }
+}
+
+fn default_id() -> Option<String> {
+    Some("*".to_string())
 }
 
 /// Token 签名

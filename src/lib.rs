@@ -17,6 +17,7 @@ use spring_web::aide::axum::ApiRouter;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use crate::auth::manager::CustomTimeoutTrait;
 
 pub mod store;
 pub mod auth;
@@ -25,7 +26,7 @@ pub mod auth;
 pub struct CacheRouterPlugin;
 
 impl CacheRouterPlugin {
-    pub async fn create_auth_router(&self, config_path: &str, auth_valid_trait:Arc<dyn AuthValidTrait>) -> (ApiRouter, HybridStorage) {
+    pub async fn create_auth_router(&self, config_path: &str, auth_valid_trait:Arc<dyn AuthValidTrait>, custom_timeout_trait:Option<Arc<dyn CustomTimeoutTrait>>) -> (ApiRouter, HybridStorage) {
         let app = get_config_registry(config_path);
         let store_config = app
             .get_config::<StorageConfig>()
@@ -39,7 +40,7 @@ impl CacheRouterPlugin {
         let redis_storage =  RedisStorage::new(connect, store_config.key_prefix.clone());
         let local_storage = Self::local_connect(store_config.clone()).await.expect("local connect failed");
         let hybrid_storage = HybridStorage::new(local_storage, redis_storage, auth_config.clone().storage);
-        let state = TokenState::new(Arc::new(hybrid_storage.clone()),Arc::new(auth_config),auth_valid_trait);
+        let state = TokenState::new(Arc::new(hybrid_storage.clone()),Arc::new(auth_config),auth_valid_trait,custom_timeout_trait);
         StpUtil::init_manager(state.manager.clone());
         (spring_web::handler::auto_router()
              .layer(TokenLayer::new(state.clone())),hybrid_storage)
