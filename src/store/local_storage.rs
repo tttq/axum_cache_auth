@@ -91,15 +91,12 @@ impl StorageTrait for LocalStorage {
         let full_key = self.full_key(key);
         let actual_ttl = ttl.unwrap_or(self.default_ttl);
         debug!("设置本地缓存: {}, TTL: {:?}", full_key, actual_ttl);
-        
         self.cache
             .insert(full_key.clone(), value.to_string());
-        
         // 如果指定了不同的TTL，则单独设置
         if ttl.is_some() {
             // moka会自动处理TTL，这里不需要额外操作
         }
-        
         info!("本地缓存设置成功: {}", full_key);
         Ok(())
     }

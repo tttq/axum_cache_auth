@@ -438,6 +438,8 @@ pub struct TokenBuilder {
     extra_data: Option<serde_json::Value>,
     device: Option<String>,
     login_type: Option<String>,
+    tenant_id: Option<String>,
+    client_id:  Option<String>,
 }
 
 impl TokenBuilder {
@@ -448,6 +450,8 @@ impl TokenBuilder {
             extra_data: None,
             device: None,
             login_type: None,
+            tenant_id: None,
+            client_id: None,
         }
     }
     
@@ -468,6 +472,16 @@ impl TokenBuilder {
         self.login_type = Some(login_type.into());
         self
     }
+    /// 设置租户id
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+    /// 设置客户端id
+    pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
+        self.client_id = Some(client_id.into());
+        self
+    }
     
     /// 执行登录操作 | Execute login
     /// 
@@ -480,16 +494,27 @@ impl TokenBuilder {
             Some(id) => id.to_login_id(),
             None => self.login_id,
         };
-        
-        let token = manager.login_with_options(
+        if self.client_id.is_none() || self.tenant_id.is_none() {
+            let token = manager.login_with_options(
+                final_login_id,
+                self.login_type,
+                self.device,
+                self.extra_data,
+                None,
+                None
+            ).await?;
+           return  Ok(token)
+        }
+        let token = manager.login_with_client_options(
             final_login_id,
             self.login_type,
             self.device,
             self.extra_data,
             None,
-            None
+            None,
+            self.client_id,
+            self.tenant_id
         ).await?;
-        
         Ok(token)
     }
 }

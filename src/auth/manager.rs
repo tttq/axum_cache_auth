@@ -29,6 +29,59 @@ impl TokenManager {
             .await
     }
 
+    pub async fn login_with_client_options(
+        &self,
+        login_id: impl Into<String>,
+        login_type: Option<String>,
+        device: Option<String>,
+        extra_data: Option<serde_json::Value>,
+        nonce: Option<String>,
+        expire_time: Option<DateTime<Utc>>,
+        client_id: Option<String>,
+        tenant_id: Option<String>,
+    ) -> TokenResult<TokenValue> {
+        let login_id = login_id.into();
+
+        // 生成 token（支持 JWT）
+        let token = TokenGenerator::generate_with_login_id(&self.config, &login_id);
+
+        // 创建 token 信息
+        let mut token_info = TokenInfo::new(token.clone(), login_id.clone());
+
+        // 设置登录类型
+        token_info.login_type = login_type.unwrap_or_else(|| "default".to_string());
+
+        // 设置设备标识
+        if let Some(device_str) = device {
+            token_info.device = Some(device_str);
+        }
+
+        // 设置额外数据
+        if let Some(extra) = extra_data {
+            token_info.extra_data = Some(extra);
+        }
+
+        // 设置 nonce
+        if let Some(nonce_str) = nonce {
+            token_info.nonce = Some(nonce_str);
+        }
+
+        // 设置过期时间
+        if let Some(custom_expire_time) = expire_time {
+            token_info.expire_time = Some(custom_expire_time);
+        }
+        // 设置客户端id
+        if let Some(client_id) = client_id {
+            token_info.client_id = Some(client_id);
+        }
+        // 设置租户
+        if let Some(tenant_id) = tenant_id {
+            token_info.tenant_id = Some(tenant_id);
+        }
+        // 调用底层方法
+        self.login_with_token_info(token_info).await
+    }
+
     /// 登录：为指定账号创建 token（支持自定义 TokenInfo 字段）
     ///
     /// # 参数 | Parameters
