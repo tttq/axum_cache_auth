@@ -568,6 +568,10 @@ impl TokenManager {
     }
 
     /// 获取权限
+    pub async fn get_permission_by_key<T: for<'de> Deserialize<'de> + Default>(&self, permission_key: &str) -> TokenResult<T> {
+        self.get_cache_by_key::<T>(permission_key).await
+    }
+    /// 获取权限
     pub async fn get_permission<T: for<'de> Deserialize<'de> + Default>(&self, login_id: &str, client_id: &str) -> TokenResult<T> {
         let permission_key = self.config.cache_permission_key.clone().unwrap_or_default();
         self.get_cache::<T>(&permission_key, login_id, client_id).await
@@ -583,6 +587,11 @@ impl TokenManager {
     pub async fn set_role<T: Serialize>(&self, login_id: &str, client_id: &str, role_vec: T, timeout: u64) -> TokenResult<()> {
         let role_key = self.config.cache_role_key.clone().unwrap_or_default();
         self.set_cache::<T>(&role_key, login_id, client_id, role_vec, timeout).await
+    }
+
+    /// 获取角色
+    pub async fn get_role_by_key<T: for<'de> Deserialize<'de> + Default>(&self, role_key: &str) -> TokenResult<T> {
+        self.get_cache_by_key::<T>(&role_key).await
     }
 
     /// 获取角色

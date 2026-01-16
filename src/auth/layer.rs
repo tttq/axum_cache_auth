@@ -170,9 +170,23 @@ where
                     if !valid {
                         return Ok(create_unauthorized_response());
                     }
-                    
+                    let config = manager.config.clone();
                     let token_info = token_info.unwrap();
-                    let user_client_key = format!(":{}:{:?}", &token_info.login_id, &token_info.client_id);
+                    let permission_key=config.cache_permission_key.clone().unwrap_or_default();
+                    let role_key=config.cache_role_key.clone().unwrap_or_default();
+                    
+                    // 优化：只在client_id存在时才拼接，避免双引号
+                    let user_permission_key = if let Some(client_id) = &token_info.client_id {
+                        format!("{}:{}:{}", permission_key, &token_info.login_id, client_id)
+                    } else {
+                        format!("{}:{}", permission_key, &token_info.login_id)
+                    };
+                    
+                    let user_role_key = if let Some(client_id) = &token_info.client_id {
+                        format!("{}:{}:{}", role_key, &token_info.login_id, client_id)
+                    } else {
+                        format!("{}:{}", role_key, &token_info.login_id)
+                    };
                     
                     // 获取权限编码（如果有）
                     let permission_code = request.headers()
@@ -190,14 +204,14 @@ where
                         manager.clone(),
                         path.to_string(),
                         role_code.clone(),
-                        Some(user_client_key.clone())
+                        Some(user_role_key.clone())
                     ).await;
                     
                     let has_permission = auth_valid_trait.has_permission(
                         manager.clone(),
                         path.to_string(),
                         permission_code.clone(),
-                        Some(user_client_key)
+                        Some(user_permission_key)
                     ).await;
                     
                     // 只有当既没有角色权限也没有功能权限时，才返回无权限响应
